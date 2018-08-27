@@ -24,6 +24,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class FileTransferBackground extends CordovaPlugin {
 
@@ -95,13 +96,16 @@ public class FileTransferBackground extends CordovaPlugin {
           @Override
           public void onError(Context context, UploadInfo uploadInfo, Exception exception) {
             LogMessage("App onError: " + exception);
+            exception.printStackTrace();
 
             try {
-              updateStateForUpload(payload.id, UploadState.FAILED, null);
+              updateStateForUpload(payload.id, UploadState.FAILED, null, null);
 
               JSONObject errorObj = new JSONObject();
               errorObj.put("id", payload.id);
               errorObj.put("error", "execute failed");
+              //--Rut Bastoni - 24/08/2018 - add an extra-field with error trace
+              errorObj.put("errorDetail", exception.getMessage() + "\n" + Log.getStackTraceString(exception));
               errorObj.put("state", "FAILED");
               PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, errorObj);
               errorResult.setKeepCallback(true);
@@ -118,7 +122,9 @@ public class FileTransferBackground extends CordovaPlugin {
 
             try {
               LogMessage("server response : " + serverResponse.getBodyAsString());
-              updateStateForUpload(payload.id, UploadState.UPLOADED, serverResponse.getBodyAsString());
+              //--Rut - 27/08/2018 - invia anche i response headers al risultato
+              Map<String, String> responseHeaders = serverResponse.getHeaders();
+              updateStateForUpload(payload.id, UploadState.UPLOADED, serverResponse.getBodyAsString(), responseHeaders);
 
               JSONObject objResult = new JSONObject();
               objResult.put("id", payload.id);
@@ -126,6 +132,17 @@ public class FileTransferBackground extends CordovaPlugin {
               objResult.put("serverResponse", serverResponse.getBodyAsString());
               objResult.put("state", "UPLOADED");
               objResult.put("statusCode", serverResponse.getHttpCode());
+
+              JSONObject headers = new JSONObject();
+              for(String header: responseHeaders.keySet()) {
+                if(header != null && header.length() > 0){
+                  String value = responseHeaders.get(header);
+                  headers.put(header, value);
+                }
+              }
+
+              objResult.put("headers", headers);
+
               PluginResult completedUpdate = new PluginResult(PluginResult.Status.OK, objResult);
               completedUpdate.setKeepCallback(true);
               if (callbackContext !=null  && self.webView !=null)
@@ -153,7 +170,7 @@ public class FileTransferBackground extends CordovaPlugin {
 
     } else {
       LogMessage("Upload failed. Image added to pending list");
-      updateStateForUpload(payload.id, UploadState.FAILED, null);
+      updateStateForUpload(payload.id, UploadState.FAILED, null, null);
     }
   }
 
@@ -189,7 +206,7 @@ public class FileTransferBackground extends CordovaPlugin {
     }
   }
 
-  private void updateStateForUpload(String fileId, String state, String serverResponse) {
+  private void updateStateForUpload(String fileId, String state, String serverResponse, Map<String, String> responseHeaders) {
     try {
       String content = storage.readTextFile(uploadDirectoryName, fileId + ".json");
       if (content != null) {
@@ -197,6 +214,20 @@ public class FileTransferBackground extends CordovaPlugin {
         uploadJson.put("state", state);
         if (state == UploadState.UPLOADED) {
           uploadJson.put("serverResponse", serverResponse != null ? serverResponse : "");
+
+          //--Rut - 27/08/2018 - invia anche i response headers al risultato
+          JSONObject headers = new JSONObject();
+
+          if(responseHeaders != null){
+            for(String header: responseHeaders.keySet()) {
+              if(header != null && header.length() > 0){
+                String value = responseHeaders.get(header);
+                headers.put(header, value);
+              }
+            }
+          }
+
+          uploadJson.put("headers", headers);
         }
         //delete old file
         removeUploadInfoFile(fileId);
@@ -269,6 +300,7 @@ public class FileTransferBackground extends CordovaPlugin {
           objResult.put("id", id);
           objResult.put("completed", true);
           objResult.put("serverResponse", upload.getString("serverResponse"));
+          objResult.put("headers", upload.getJSONObject("headers"));
           PluginResult progressUpdate = new PluginResult(PluginResult.Status.OK, objResult);
           progressUpdate.setKeepCallback(true);
           callbackContext.sendPluginResult(progressUpdate);
