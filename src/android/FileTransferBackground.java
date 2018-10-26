@@ -35,6 +35,11 @@ public class FileTransferBackground extends CordovaPlugin {
   private Long lastProgressTimestamp = 0L;
 
   @Override
+  protected void pluginInitialize() {
+    UploadService.NAMESPACE = cordova.getActivity().getPackageName();
+  }
+
+  @Override
   public boolean execute(String action, JSONArray args, final CallbackContext callbackContext) throws JSONException {
 
     try {
@@ -94,7 +99,7 @@ public class FileTransferBackground extends CordovaPlugin {
           }
 
           @Override
-          public void onError(Context context, UploadInfo uploadInfo, Exception exception) {
+          public void onError(Context context, UploadInfo uploadInfo, ServerResponse serverResponse, Exception exception) {
             LogMessage("App onError: " + exception);
             exception.printStackTrace();
 
@@ -107,6 +112,17 @@ public class FileTransferBackground extends CordovaPlugin {
               //--Rut Bastoni - 24/08/2018 - add an extra-field with error trace
               errorObj.put("errorDetail", exception.getMessage() + "\n" + Log.getStackTraceString(exception));
               errorObj.put("state", "FAILED");
+              errorObj.put("serverResponse", serverResponse.getBodyAsString());
+              errorObj.put("statusCode", serverResponse.getHttpCode());
+              Map<String, String> responseHeaders = serverResponse.getHeaders();
+              JSONObject headers = new JSONObject();
+              for(String header: responseHeaders.keySet()) {
+                if(header != null && header.length() > 0){
+                  String value = responseHeaders.get(header);
+                  headers.put(header, value);
+                }
+              }
+              errorObj.put("headers", headers);
               PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, errorObj);
               errorResult.setKeepCallback(true);
               if (callbackContext !=null  && self.webView !=null )
