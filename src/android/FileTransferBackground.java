@@ -7,11 +7,7 @@ import com.sromku.simple.storage.SimpleStorage;
 import com.sromku.simple.storage.Storage;
 import com.sromku.simple.storage.helpers.OrderType;
 
-import net.gotev.uploadservice.MultipartUploadRequest;
-import net.gotev.uploadservice.ServerResponse;
-import net.gotev.uploadservice.UploadInfo;
-import net.gotev.uploadservice.UploadService;
-import net.gotev.uploadservice.UploadStatusDelegate;
+import net.gotev.uploadservice.*;
 import net.gotev.uploadservice.okhttp.OkHttpStack;
 
 import org.apache.cordova.CallbackContext;
@@ -182,6 +178,29 @@ public class FileTransferBackground extends CordovaPlugin {
         request.addHeader(key, payload.headers.get(key));
       }
 
+      // Rut - 06/11/2018 - configurazione notifica di upload
+      // TODO sarebbe opportuno mettere i messaggi con dei valori di default come parametri di installazione del plugin
+      UploadNotificationConfig notificationConfig = new UploadNotificationConfig();
+      notificationConfig.getCancelled().autoClear = true;
+      UploadNotificationStatusConfig status = notificationConfig.getProgress();
+
+      //--Rut - 06/11/2018 - SU ANDROID OREO (>= 8.0) è DIVENUTO OBBLIGATORIO MOSTRARE UNA NOTIFICA DURANTE L'UTILIZZO
+      // DI UN SERVIZIO IN BACKGROUND - configuriamo quindi delle notifiche 'volatili' (che si nascondono da sole finito
+      // l'evento) per non impestare la barra delle notifiche utente se ad esempio carica tanti file, e impostiamo i messaggi
+      // in italiano
+      status.autoClear = true;
+      status.message = "Velocità di caricamento [[UPLOAD_RATE]] ([[PROGRESS]])";
+      status = notificationConfig.getCompleted();
+      status.autoClear = true;
+      status.message = "Caricamento completato in [[ELAPSED_TIME]]";
+      status = notificationConfig.getError();
+      status.autoClear = true;
+      status.message = "Caricamento non riuscito";
+      status = notificationConfig.getCancelled();
+      status.autoClear = true;
+      status.message = "Caricamento annullato";
+      notificationConfig.setTitleForAllStatuses("Caricamento file");
+      request.setNotificationConfig(notificationConfig);
       request.startUpload();
 
     } else {
