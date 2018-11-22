@@ -170,6 +170,12 @@ NSString *const FormatTypeName[5] = {
     
 }
 
+- (void) stopAllUploads:(CDVInvokedUrlCommand*)command {
+    CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
+                                                      messageAsDictionary:@{ @"error" : @"Not avaiable on iOS platform" }];
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
 - (NSData *)createBodyWithBoundary:(NSString *)boundary
                         parameters:(NSDictionary *)parameters
                              paths:(NSArray *)paths

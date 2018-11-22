@@ -128,6 +128,16 @@ FileTransferManager.prototype.removeUpload = function (id, success, fail) {
 
     exec(success,fail, "FileTransferBackground", "removeUpload", [id]);
 }
+
+/**
+ * Stop all pending uploads  - works only for Android
+ * @param success
+ * @param fail
+ */
+FileTransferManager.prototype.stopAllUploads = function (success, fail) {
+    exec(success,fail, "FileTransferBackground", "stopAllUploads", []);
+}
+
 /**
  * Listen for an event.
  *
