@@ -187,7 +187,12 @@ public class FileTransferBackground extends CordovaPlugin {
 
   @Override
   public void onPause(boolean multitasking) {
-    uploadBroadcastReceiver.unregister(cordova.getActivity());
+    //See https://stackoverflow.com/questions/2682043/how-to-check-if-receiver-is-registered-in-android
+    try{
+      uploadBroadcastReceiver.unregister(cordova.getActivity());
+    }catch (IllegalArgumentException e){
+      // Simply swallow this unesuful exception
+    }
   }
 
   @Override
