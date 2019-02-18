@@ -76,7 +76,7 @@ public class FileTransferBackground extends CordovaPlugin {
     }
 
     @Override
-    public void onError(Context context, UploadInfo uploadInfo, ServerResponse serverResponse, Exception exception) {
+    public void onError(Context context, UploadInfo uploadInfo, final ServerResponse serverResponse, Exception exception) {
       if(currentPayload == null || currentCallbackContext == null){
         return;
       }
@@ -174,11 +174,6 @@ public class FileTransferBackground extends CordovaPlugin {
 
   private final SingleUploadBroadcastReceiver uploadBroadcastReceiver = new SingleUploadBroadcastReceiver();
 
-
-  @Override
-  protected void pluginInitialize() {
-    UploadService.NAMESPACE = cordova.getActivity().getPackageName();
-  }
 
   @Override
   public void onResume(boolean multitasking) {
@@ -388,6 +383,7 @@ public class FileTransferBackground extends CordovaPlugin {
       Logger.setLogLevel(Logger.LogLevel.DEBUG);
       UploadService.HTTP_STACK = new OkHttpStack();
       UploadService.UPLOAD_POOL_SIZE = 1;
+      UploadService.NAMESPACE = cordova.getActivity().getPackageName();
 
       storage = SimpleStorage.getInternalStorage(this.cordova.getActivity().getApplicationContext());
       storage.createDirectory(uploadDirectoryName);
