@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class FileTransferBackground extends CordovaPlugin {
+public class FileTransferBackground extends CordovaPlugin implements UploadStatusDelegate {
 
   private final String uploadDirectoryName = "FileTransferBackground";
   private Storage storage;
@@ -33,158 +33,142 @@ public class FileTransferBackground extends CordovaPlugin {
   private FileTransferSettings currentPayload;
   private CallbackContext currentCallbackContext;
 
-  public class SingleUploadBroadcastReceiver extends UploadServiceBroadcastReceiver {
-    private String mUploadID;
+  private UploadServiceSingleBroadcastReceiver uploadServiceSingleBroadcastReceiver = new UploadServiceSingleBroadcastReceiver(this);;
 
-    public SingleUploadBroadcastReceiver() {
-      super();
+  @Override
+  public void onProgress(Context context, UploadInfo uploadInfo) {
+    if(currentPayload == null || currentCallbackContext == null){
+      return;
     }
 
-    public void setUploadID(String uploadID) {
-      mUploadID = uploadID;
-    }
-
-    @Override
-    protected boolean shouldAcceptEventFrom(UploadInfo uploadInfo) {
-      return mUploadID != null && uploadInfo.getUploadId().equals(mUploadID);
-    }
-
-    @Override
-    public void onProgress(Context context, UploadInfo uploadInfo) {
-      if(currentPayload == null || currentCallbackContext == null){
-        return;
-      }
-
-      try {
-        Long currentTimestamp = System.currentTimeMillis()/1000;
-        if (currentTimestamp - lastProgressTimestamp >=1) {
-          LogMessage("id:" + currentPayload.id + " progress: " + uploadInfo.getProgressPercent());
-          lastProgressTimestamp = currentTimestamp;
-          JSONObject objResult = new JSONObject();
-          objResult.put("id", currentPayload.id);
-          objResult.put("progress", uploadInfo.getProgressPercent());
-          objResult.put("state", "UPLOADING");
-          PluginResult progressUpdate = new PluginResult(PluginResult.Status.OK, objResult);
-          progressUpdate.setKeepCallback(true);
-          if (currentCallbackContext != null && FileTransferBackground.this.webView != null)
-            currentCallbackContext.sendPluginResult(progressUpdate);
-        }
-
-      } catch (Exception e) {
-        e.printStackTrace();
-      }
-    }
-
-    @Override
-    public void onError(Context context, UploadInfo uploadInfo, final ServerResponse serverResponse, Exception exception) {
-      if(currentPayload == null || currentCallbackContext == null){
-        return;
-      }
-
-      LogMessage("App onError: " + exception);
-      if(exception != null){
-        exception.printStackTrace();
-      }
-
-      try {
-        updateStateForUpload(currentPayload.id, UploadState.FAILED, null, null);
-
-        JSONObject errorObj = new JSONObject();
-        errorObj.put("id", currentPayload.id);
-        errorObj.put("error", "execute failed");
-        //--Rut Bastoni - 24/08/2018 - add an extra-field with error trace
-        String errDesc = exception != null ? exception.getMessage() + "\n" + Log.getStackTraceString(exception) : "NULL";
-        errorObj.put("errorDetail", errDesc);
-        errorObj.put("state", "FAILED");
-        String serverResponseText = serverResponse != null ? serverResponse.getBodyAsString() : "NULL";
-        errorObj.put("serverResponse", serverResponseText);
-        int httpCode = serverResponse != null ? serverResponse.getHttpCode() : 0;
-        errorObj.put("statusCode", httpCode);
-        Map<String, String> responseHeaders = serverResponse != null ? serverResponse.getHeaders() : null;
-        JSONObject headers = new JSONObject();
-
-        if(responseHeaders != null){
-          for(String header: responseHeaders.keySet()) {
-            if(header != null && header.length() > 0){
-              String value = responseHeaders.get(header);
-              headers.put(header, value);
-            }
-          }
-        }
-
-        errorObj.put("headers", headers);
-        PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, errorObj);
-        errorResult.setKeepCallback(true);
-        if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null )
-          currentCallbackContext.sendPluginResult(errorResult);
-
-      } catch (Exception e) {
-        e.printStackTrace();
-        String errDesc = e != null ? e.getMessage() + "\n" + Log.getStackTraceString(e) : "NULL";
-        PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, "Exception: " + errDesc);
-        errorResult.setKeepCallback(true);
-        if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null )
-          currentCallbackContext.sendPluginResult(errorResult);
-      }
-    }
-
-    @Override
-    public void onCompleted(Context context, UploadInfo uploadInfo, ServerResponse serverResponse) {
-      if(currentPayload == null || currentCallbackContext == null){
-        return;
-      }
-
-      try {
-        LogMessage("server response : " + serverResponse.getBodyAsString());
-        //--Rut - 27/08/2018 - invia anche i response headers al risultato
-        Map<String, String> responseHeaders = serverResponse.getHeaders();
-        updateStateForUpload(currentPayload.id, UploadState.UPLOADED, serverResponse.getBodyAsString(), responseHeaders);
-
+    try {
+      Long currentTimestamp = System.currentTimeMillis()/1000;
+      if (currentTimestamp - lastProgressTimestamp >=1) {
+        LogMessage("id:" + currentPayload.id + " progress: " + uploadInfo.getProgressPercent());
+        lastProgressTimestamp = currentTimestamp;
         JSONObject objResult = new JSONObject();
         objResult.put("id", currentPayload.id);
-        objResult.put("completed", true);
-        objResult.put("serverResponse", serverResponse.getBodyAsString());
-        objResult.put("state", "UPLOADED");
-        objResult.put("statusCode", serverResponse.getHttpCode());
+        objResult.put("progress", uploadInfo.getProgressPercent());
+        objResult.put("state", "UPLOADING");
+        PluginResult progressUpdate = new PluginResult(PluginResult.Status.OK, objResult);
+        progressUpdate.setKeepCallback(true);
+        if (currentCallbackContext != null && FileTransferBackground.this.webView != null)
+          currentCallbackContext.sendPluginResult(progressUpdate);
+      }
 
-        JSONObject headers = new JSONObject();
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
+
+  @Override
+  public void onError(Context context, UploadInfo uploadInfo, final ServerResponse serverResponse, Exception exception) {
+    if(currentPayload == null || currentCallbackContext == null){
+      return;
+    }
+
+    LogMessage("App onError: " + exception);
+    if(exception != null){
+      exception.printStackTrace();
+    }
+
+    try {
+      updateStateForUpload(currentPayload.id, UploadState.FAILED, null, null);
+
+      JSONObject errorObj = new JSONObject();
+      errorObj.put("id", currentPayload.id);
+      errorObj.put("error", "execute failed");
+      //--Rut Bastoni - 24/08/2018 - add an extra-field with error trace
+      String errDesc = exception != null ? exception.getMessage() + "\n" + Log.getStackTraceString(exception) : "NULL";
+      errorObj.put("errorDetail", errDesc);
+      errorObj.put("state", "FAILED");
+      String serverResponseText = serverResponse != null ? serverResponse.getBodyAsString() : "NULL";
+      errorObj.put("serverResponse", serverResponseText);
+      int httpCode = serverResponse != null ? serverResponse.getHttpCode() : 0;
+      errorObj.put("statusCode", httpCode);
+      Map<String, String> responseHeaders = serverResponse != null ? serverResponse.getHeaders() : null;
+      JSONObject headers = new JSONObject();
+
+      if(responseHeaders != null){
         for(String header: responseHeaders.keySet()) {
           if(header != null && header.length() > 0){
             String value = responseHeaders.get(header);
             headers.put(header, value);
           }
         }
-
-        objResult.put("headers", headers);
-
-        PluginResult completedUpdate = new PluginResult(PluginResult.Status.OK, objResult);
-        completedUpdate.setKeepCallback(true);
-        if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null)
-          currentCallbackContext.sendPluginResult(completedUpdate);
-      } catch (Exception e) {
-        e.printStackTrace();
       }
-    }
 
-    @Override
-    public void onCancelled(Context context, UploadInfo uploadInfo) {
-      LogMessage("App cancel");
+      errorObj.put("headers", headers);
+      PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, errorObj);
+      errorResult.setKeepCallback(true);
+      if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null )
+        currentCallbackContext.sendPluginResult(errorResult);
+
+    } catch (Exception e) {
+      e.printStackTrace();
+      String errDesc = e != null ? e.getMessage() + "\n" + Log.getStackTraceString(e) : "NULL";
+      PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, "Exception: " + errDesc);
+      errorResult.setKeepCallback(true);
+      if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null )
+        currentCallbackContext.sendPluginResult(errorResult);
     }
   }
 
-  private final SingleUploadBroadcastReceiver uploadBroadcastReceiver = new SingleUploadBroadcastReceiver();
+  @Override
+  public void onCompleted(Context context, UploadInfo uploadInfo, ServerResponse serverResponse) {
+    if(currentPayload == null || currentCallbackContext == null){
+      return;
+    }
 
+    try {
+      LogMessage("server response : " + serverResponse.getBodyAsString());
+      //--Rut - 27/08/2018 - invia anche i response headers al risultato
+      Map<String, String> responseHeaders = serverResponse.getHeaders();
+      updateStateForUpload(currentPayload.id, UploadState.UPLOADED, serverResponse.getBodyAsString(), responseHeaders);
+
+      JSONObject objResult = new JSONObject();
+      objResult.put("id", currentPayload.id);
+      objResult.put("completed", true);
+      objResult.put("serverResponse", serverResponse.getBodyAsString());
+      objResult.put("state", "UPLOADED");
+      objResult.put("statusCode", serverResponse.getHttpCode());
+
+      JSONObject headers = new JSONObject();
+      for(String header: responseHeaders.keySet()) {
+        if(header != null && header.length() > 0){
+          String value = responseHeaders.get(header);
+          headers.put(header, value);
+        }
+      }
+
+      objResult.put("headers", headers);
+
+      PluginResult completedUpdate = new PluginResult(PluginResult.Status.OK, objResult);
+      completedUpdate.setKeepCallback(true);
+      if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null)
+        currentCallbackContext.sendPluginResult(completedUpdate);
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
+
+  @Override
+  public void onCancelled(Context context, UploadInfo uploadInfo) {
+    LogMessage("App cancel");
+  }
 
   @Override
   public void onResume(boolean multitasking) {
-    uploadBroadcastReceiver.register(cordova.getActivity());
+    //--Rut Bastoni - 19/02/2019 - namespace HAS TO BE SET BEFORE broadcast receiver is registered, otherwise it won't work
+    UploadService.NAMESPACE = cordova.getActivity().getPackageName();
+    uploadServiceSingleBroadcastReceiver.register(cordova.getActivity());
   }
 
   @Override
   public void onPause(boolean multitasking) {
     //See https://stackoverflow.com/questions/2682043/how-to-check-if-receiver-is-registered-in-android
     try{
-      uploadBroadcastReceiver.unregister(cordova.getActivity());
+      uploadServiceSingleBroadcastReceiver.unregister(cordova.getActivity());
     }catch (IllegalArgumentException e){
       // Simply swallow this unesuful exception
     }
@@ -228,7 +212,7 @@ public class FileTransferBackground extends CordovaPlugin {
     final FileTransferBackground self = this;
 
     if (NetworkMonitor.isConnected) {
-      uploadBroadcastReceiver.setUploadID(payload.id);
+      uploadServiceSingleBroadcastReceiver.setUploadID(payload.id);
       MultipartUploadRequest request = new MultipartUploadRequest(this.cordova.getActivity().getApplicationContext(), payload.id,payload.serverUrl)
               .addFileToUpload(payload.filePath, payload.fileKey)
               .setMaxRetries(0);
@@ -383,7 +367,6 @@ public class FileTransferBackground extends CordovaPlugin {
       Logger.setLogLevel(Logger.LogLevel.DEBUG);
       UploadService.HTTP_STACK = new OkHttpStack();
       UploadService.UPLOAD_POOL_SIZE = 1;
-      UploadService.NAMESPACE = cordova.getActivity().getPackageName();
 
       storage = SimpleStorage.getInternalStorage(this.cordova.getActivity().getApplicationContext());
       storage.createDirectory(uploadDirectoryName);
