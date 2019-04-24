@@ -19,6 +19,7 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,6 +35,32 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
   private CallbackContext currentCallbackContext;
 
   private UploadServiceSingleBroadcastReceiver uploadServiceSingleBroadcastReceiver = new UploadServiceSingleBroadcastReceiver(this);;
+
+  private void sendMessageWithData(String message, String... data) throws JSONException {
+    JSONObject cordovaMessage = new JSONObject();
+    cordovaMessage.put("message", message);
+    int count = 0;
+    ArrayList<String> keys = new ArrayList<>();
+    ArrayList<String> values = new ArrayList<>();
+    for(String obj: data){
+      if(count % 2 == 0){
+        keys.add(obj);
+      }
+      else{
+        values.add(obj);
+      }
+      count++;
+    }
+
+    HashMap<String, String> dataMap = new HashMap<>();
+    for(int i=0; i<keys.size(); i++){
+      if(i < values.size()){
+        dataMap.put(keys.get(i), values.get(i));
+      }
+    }
+    cordovaMessage.put("data", dataMap);
+    webView.getPluginManager().postMessage("FileTransferBackground", cordovaMessage);
+  }
 
   @Override
   public void onProgress(Context context, UploadInfo uploadInfo) {
@@ -54,10 +81,16 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
         progressUpdate.setKeepCallback(true);
         if (currentCallbackContext != null && FileTransferBackground.this.webView != null)
           currentCallbackContext.sendPluginResult(progressUpdate);
+        sendMessageWithData("onProgress", "progressUpdate", objResult.toString());
       }
 
     } catch (Exception e) {
       e.printStackTrace();
+      try{
+        sendMessageWithData("onProgressException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
   }
 
@@ -103,6 +136,7 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       errorResult.setKeepCallback(true);
       if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null )
         currentCallbackContext.sendPluginResult(errorResult);
+      sendMessageWithData("onError", "errorObj", errorObj.toString());
 
     } catch (Exception e) {
       e.printStackTrace();
@@ -111,6 +145,11 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       errorResult.setKeepCallback(true);
       if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null )
         currentCallbackContext.sendPluginResult(errorResult);
+      try{
+        sendMessageWithData("onErrorException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
   }
 
@@ -147,14 +186,25 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       completedUpdate.setKeepCallback(true);
       if (currentCallbackContext !=null  && FileTransferBackground.this.webView !=null)
         currentCallbackContext.sendPluginResult(completedUpdate);
+      sendMessageWithData("onCompleted", "objResult", objResult.toString());
     } catch (Exception e) {
       e.printStackTrace();
+      try{
+        sendMessageWithData("onCompletedException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
   }
 
   @Override
   public void onCancelled(Context context, UploadInfo uploadInfo) {
     LogMessage("App cancel");
+    try{
+      sendMessageWithData("onCancelled", "uploadId", uploadInfo.getUploadId());
+    }catch (Exception innerE){
+      innerE.printStackTrace();
+    }
   }
 
   @Override
@@ -162,6 +212,11 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
     //--Rut Bastoni - 19/02/2019 - namespace HAS TO BE SET BEFORE broadcast receiver is registered, otherwise it won't work
     UploadService.NAMESPACE = cordova.getActivity().getPackageName();
     uploadServiceSingleBroadcastReceiver.register(cordova.getActivity());
+    try{
+      sendMessageWithData("onResume");
+    }catch (Exception innerE){
+      innerE.printStackTrace();
+    }
   }
 
   @Override
@@ -169,6 +224,11 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
     //See https://stackoverflow.com/questions/2682043/how-to-check-if-receiver-is-registered-in-android
     try{
       uploadServiceSingleBroadcastReceiver.unregister(cordova.getActivity());
+      try{
+        sendMessageWithData("onPause");
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }catch (IllegalArgumentException e){
       // Simply swallow this unesuful exception
     }
@@ -197,6 +257,7 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
         PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, errorObj);
         errorResult.setKeepCallback(true);
         callbackContext.sendPluginResult(errorResult);
+        sendMessageWithData("executeException", "trace", Log.getStackTraceString(ex));
       } catch (JSONException e) {
         e.printStackTrace();
       }
@@ -249,15 +310,21 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       notificationConfig.setTitleForAllStatuses("Caricamento file");
       request.setNotificationConfig(notificationConfig);
       request.startUpload();
-
+      sendMessageWithData("upload", "jsonPayload", jsonPayload.toString(), "callbackId", callbackContext.getCallbackId());
     } else {
       LogMessage("Upload failed. Image added to pending list");
       updateStateForUpload(payload.id, UploadState.FAILED, null, null);
+      sendMessageWithData("upload failed.Image added to pending list ", "jsonPayload", jsonPayload.toString(), "callbackId", callbackContext.getCallbackId());
     }
   }
 
   private void LogMessage(String message) {
     Log.d("FileTransferBG", message);
+    try{
+      sendMessageWithData("LogMessage", "message", message);
+    }catch (Exception e){
+      e.printStackTrace();
+    }
   }
 
   private void removeUpload(String fileId, CallbackContext callbackContext) {
@@ -269,11 +336,17 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       PluginResult res = new PluginResult(PluginResult.Status.OK);
       res.setKeepCallback(true);
       callbackContext.sendPluginResult(res);
+      sendMessageWithData("removeUpload", "fileId", fileId, "callbackId", callbackContext.getCallbackId());
     } catch (Exception e) {
       e.printStackTrace();
       PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, e.toString());
       errorResult.setKeepCallback(true);
       callbackContext.sendPluginResult(errorResult);
+      try{
+        sendMessageWithData("removeUploadException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
   }
 
@@ -283,11 +356,17 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       PluginResult res = new PluginResult(PluginResult.Status.OK);
       res.setKeepCallback(true);
       callbackContext.sendPluginResult(res);
+      sendMessageWithData("stopAllUploads", "callbackId", callbackContext.getCallbackId());
     }catch (Exception e) {
       e.printStackTrace();
       PluginResult errorResult = new PluginResult(PluginResult.Status.ERROR, e.toString());
       errorResult.setKeepCallback(true);
       callbackContext.sendPluginResult(errorResult);
+      try{
+        sendMessageWithData("stopAllUploadsException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
   }
 
@@ -299,6 +378,11 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       storage.createFile(uploadDirectoryName, fileId + ".json", upload.toString());
     } catch (Exception e) {
       e.printStackTrace();
+      try{
+        sendMessageWithData("createUploadInfoFileException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
   }
 
@@ -332,6 +416,11 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       }
     } catch (Exception e) {
       e.printStackTrace();
+      try{
+        sendMessageWithData("updateStateForUploadException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
 
   }
@@ -357,6 +446,11 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
 
     } catch (Exception e) {
       e.printStackTrace();
+      try{
+        sendMessageWithData("getUploadHistoryException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
 
     return previousUploads;
@@ -413,9 +507,14 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
         //delete upload info on disk
         removeUploadInfoFile(id);
       }
-
+      sendMessageWithData("initManager", "options", options, "callbackId", callbackContext.getCallbackId());
     } catch (Exception e) {
       e.printStackTrace();
+      try{
+        sendMessageWithData("initManagerException", "trace", Log.getStackTraceString(e));
+      }catch (Exception innerE){
+        innerE.printStackTrace();
+      }
     }
   }
 
@@ -429,6 +528,11 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
         }
       } catch (Exception e) {
         e.printStackTrace();
+        try{
+          sendMessageWithData("uploadPendingListException", "trace", Log.getStackTraceString(e));
+        }catch (Exception innerE){
+          innerE.printStackTrace();
+        }
       }
     }
   }
@@ -437,5 +541,10 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
     Log.d("FileTransferBackground"," FileTransferBackground onDestroy");
     if(networkMonitor != null)
       networkMonitor.stopMonitoring();
+    try{
+      sendMessageWithData("onDestroy");
+    }catch (Exception innerE){
+      innerE.printStackTrace();
+    }
   }
 }
