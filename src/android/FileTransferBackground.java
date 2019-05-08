@@ -10,6 +10,7 @@ import com.sromku.simple.storage.helpers.OrderType;
 import net.gotev.uploadservice.*;
 import net.gotev.uploadservice.okhttp.OkHttpStack;
 
+import okhttp3.OkHttpClient;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.PluginResult;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class FileTransferBackground extends CordovaPlugin implements UploadStatusDelegate {
 
@@ -459,7 +461,21 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
   private void initManager(String options, final CallbackContext callbackContext) {
     try {
       Logger.setLogLevel(Logger.LogLevel.DEBUG);
-      UploadService.HTTP_STACK = new OkHttpStack();
+      //--Rut - 08/05/2019 - connessione personalizzata con valori di timeout impostati da noi
+      OkHttpClient customClient =  new OkHttpClient.Builder()
+              .followRedirects(true)
+              .followSslRedirects(true)
+              .retryOnConnectionFailure(true)
+//              .connectTimeout(15, TimeUnit.SECONDS) // valore di default
+              .connectTimeout(10, TimeUnit.SECONDS)
+//              .writeTimeout(30, TimeUnit.SECONDS) // valore di default
+              .writeTimeout(15, TimeUnit.SECONDS)
+//              .readTimeout(30, TimeUnit.SECONDS) // valore di default
+              .readTimeout(15, TimeUnit.SECONDS)
+              .cache(null)
+              .build();
+
+      UploadService.HTTP_STACK = new OkHttpStack(customClient);
       UploadService.UPLOAD_POOL_SIZE = 1;
 
       storage = SimpleStorage.getInternalStorage(this.cordova.getActivity().getApplicationContext());
