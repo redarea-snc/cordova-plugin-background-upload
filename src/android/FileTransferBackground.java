@@ -312,11 +312,15 @@ public class FileTransferBackground extends CordovaPlugin implements UploadStatu
       notificationConfig.setTitleForAllStatuses("Caricamento file");
       request.setNotificationConfig(notificationConfig);
       request.startUpload();
-      sendMessageWithData("upload", "jsonPayload", jsonPayload.toString(), "callbackId", callbackContext.getCallbackId());
+      String callbackId = callbackContext != null ? callbackContext.getCallbackId() : null;
+      sendMessageWithData("upload", "jsonPayload", jsonPayload.toString(), "callbackId", callbackId);
     } else {
       LogMessage("Upload failed. Image added to pending list");
       updateStateForUpload(payload.id, UploadState.FAILED, null, null);
-      sendMessageWithData("upload failed.Image added to pending list ", "jsonPayload", jsonPayload.toString(), "callbackId", callbackContext.getCallbackId());
+      String callbackId = callbackContext != null ? callbackContext.getCallbackId() : null;
+      sendMessageWithData(
+              "upload failed.Image added to pending list ", "jsonPayload", jsonPayload.toString(), "callbackId", callbackId
+      );
     }
   }
 
