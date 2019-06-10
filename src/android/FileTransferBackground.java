@@ -6,10 +6,12 @@ import android.util.Log;
 import com.sromku.simple.storage.SimpleStorage;
 import com.sromku.simple.storage.Storage;
 import com.sromku.simple.storage.helpers.OrderType;
+import net.gotev.uploadservice.Logger;
 import net.gotev.uploadservice.MultipartUploadRequest;
 import net.gotev.uploadservice.ServerResponse;
 import net.gotev.uploadservice.UploadInfo;
 import net.gotev.uploadservice.UploadNotificationConfig;
+import net.gotev.uploadservice.UploadNotificationStatusConfig;
 import net.gotev.uploadservice.UploadService;
 import net.gotev.uploadservice.UploadServiceBroadcastReceiver;
 import net.gotev.uploadservice.okhttp.OkHttpStack;
@@ -79,7 +81,7 @@ public class FileTransferBackground extends CordovaPlugin {
       }
 
       try {
-        updateStateForUpload(uploadInfo.getUploadId(), UploadState.FAILED, null);
+        updateStateForUpload(uploadInfo.getUploadId(), UploadState.FAILED, null, null);
 
         if (uploadCallback !=null && !hasBeenDestroyed){
           JSONObject errorObj = new JSONObject();
@@ -117,7 +119,16 @@ public class FileTransferBackground extends CordovaPlugin {
         if (uploadCallback !=null && !hasBeenDestroyed && FileTransferBackground.this.webView !=null)
             uploadCallback.sendPluginResult(errorResult);
         try{
-            sendMessageWithData("onErrorException", "trace", Log.getStackTraceString(e));
+            //--Rut - 10/06/2019 - scarta errori di timeout - non significativi (non vengono marcati come eccezioni da Sentry)
+            String msg = "onError";
+            if(e != null && e.getMessage() != null){
+              String exMsg = e.getMessage().toLowerCase();
+              if(!exMsg.contains("timeout") && !exMsg.contains("connectionshutdown") && !exMsg.contains("failed to connect to")){
+                msg += "Exception";
+              }
+            }
+
+            sendMessageWithData(msg, "trace", Log.getStackTraceString(e));
         }catch (Exception innerE){
             innerE.printStackTrace();
         }
@@ -129,7 +140,9 @@ public class FileTransferBackground extends CordovaPlugin {
 
       try {
         LogMessage("server response : " + serverResponse.getBodyAsString() +" for "+uploadInfo.getUploadId());
-        updateStateForUpload(uploadInfo.getUploadId(), UploadState.UPLOADED, serverResponse.getBodyAsString());
+        //--Rut - 27/08/2018 - invia anche i response headers al risultato
+        Map<String, String> responseHeaders = serverResponse.getHeaders();
+        updateStateForUpload(uploadInfo.getUploadId(), UploadState.UPLOADED, serverResponse.getBodyAsString(), responseHeaders);
         if (uploadCallback !=null  && !hasBeenDestroyed){
           JSONObject objResult = new JSONObject();
           objResult.put("id", uploadInfo.getUploadId());
@@ -162,7 +175,7 @@ public class FileTransferBackground extends CordovaPlugin {
         LogMessage("upload cancelled "+uploadInfo.getUploadId());
         if (hasBeenDestroyed){
           //most likely the upload service was killed by the system
-          updateStateForUpload(uploadInfo.getUploadId(), UploadState.FAILED, null);
+          updateStateForUpload(uploadInfo.getUploadId(), UploadState.FAILED, null, null);
           return;
         }
         removeUploadInfoFile(uploadInfo.getUploadId());
@@ -239,6 +252,8 @@ public class FileTransferBackground extends CordovaPlugin {
         this.initManager(args.length() > 0 ? args.get(0).toString() : null, callbackContext);
       } else if (action.equalsIgnoreCase("removeUpload")) {
         this.removeUpload(args.length() > 0 ? args.get(0).toString() : null, callbackContext);
+      } else if (action.equalsIgnoreCase("stopAllUploads")){
+        this.stopAllUploads(callbackContext);
       } else {
         uploadCallback = callbackContext;
         upload(args.length() > 0 ? (JSONObject) args.get(0) : null, uploadCallback);
@@ -380,7 +395,7 @@ public class FileTransferBackground extends CordovaPlugin {
     try {
       upload.put("createdDate", System.currentTimeMillis() / 1000);
       upload.put("state", UploadState.STARTED);
-      storage.createFile(uploadDirectoryName, fileId + ".json", upload.toString());
+      _getStorage().createFile(uploadDirectoryName, fileId + ".json", upload.toString());
     } catch (Exception e) {
       e.printStackTrace();
       try{
@@ -394,11 +409,11 @@ public class FileTransferBackground extends CordovaPlugin {
   private void updateStateForUpload(String fileId, String state, String serverResponse, Map<String, String> responseHeaders) {
     try {
       String fileName = fileId + ".json";
-      if (!storage.isFileExist(uploadDirectoryName, fileName)){
+      if (!_getStorage().isFileExist(uploadDirectoryName, fileName)){
         LogMessage("could not find "+ fileName + " for updating upload info");
         return;
       }
-      String content = storage.readTextFile(uploadDirectoryName, fileName);
+      String content = _getStorage().readTextFile(uploadDirectoryName, fileName);
       if (content != null) {
         JSONObject uploadJson = new JSONObject(content);
         uploadJson.put("state", state);
@@ -422,7 +437,7 @@ public class FileTransferBackground extends CordovaPlugin {
         //delete old file
         removeUploadInfoFile(fileId);
         //write updated file
-        storage.createFile(uploadDirectoryName, fileName, uploadJson.toString());
+        _getStorage().createFile(uploadDirectoryName, fileName, uploadJson.toString());
       }
     } catch (Exception e) {
       e.printStackTrace();
@@ -436,16 +451,16 @@ public class FileTransferBackground extends CordovaPlugin {
   }
 
   private void removeUploadInfoFile(String fileId) {
-    storage.deleteFile(uploadDirectoryName, fileId + ".json");
+    _getStorage().deleteFile(uploadDirectoryName, fileId + ".json");
   }
 
   private ArrayList<JSONObject> getUploadHistory() {
     ArrayList<JSONObject> previousUploads = new ArrayList<JSONObject>();
     try {
-      List<File> files = storage.getFiles(uploadDirectoryName, OrderType.DATE);
+      List<File> files = _getStorage().getFiles(uploadDirectoryName, OrderType.DATE);
       for (File file : files) {
         if (file.getName().endsWith(".json")) {
-          String content = storage.readTextFile(uploadDirectoryName, file.getName());
+          String content = _getStorage().readTextFile(uploadDirectoryName, file.getName());
           if (content != null) {
             JSONObject uploadJson = new JSONObject(content);
             previousUploads.add(uploadJson);
@@ -486,8 +501,7 @@ public class FileTransferBackground extends CordovaPlugin {
       UploadService.HTTP_STACK = new OkHttpStack(customClient);
       UploadService.UPLOAD_POOL_SIZE = 1;
 
-      storage = SimpleStorage.getInternalStorage(this.cordova.getActivity().getApplicationContext());
-      storage.createDirectory(uploadDirectoryName);
+      _getStorage();
       LogMessage("created FileTransfer working directory ");
 
       if (options != null) {
@@ -553,12 +567,28 @@ public class FileTransferBackground extends CordovaPlugin {
       } catch (Exception e) {
         e.printStackTrace();
         try{
-          sendMessageWithData("uploadPendingListException", "trace", Log.getStackTraceString(e));
+          //--Rut - 10/06/2019 - non logga i filenotfoundexception - inutili
+          String message =
+                  (e != null && e.getMessage() != null && e.getMessage().toLowerCase().contains("file not found")) ?
+                          "File not found" : "uploadPendingListException";
+          sendMessageWithData(message, "trace", Log.getStackTraceString(e));
         }catch (Exception innerE){
           innerE.printStackTrace();
         }
       }
     }
+  }
+
+  /**
+   * Rut - 10/06/2019 - fix null pointer dovuti ad activity restartate che si ritrovano senza storage
+   */
+  private Storage _getStorage(){
+      if(storage == null){
+        storage = SimpleStorage.getInternalStorage(this.cordova.getActivity().getApplicationContext());
+        storage.createDirectory(uploadDirectoryName);
+      }
+
+      return storage;
   }
 
   public void onDestroy() {
