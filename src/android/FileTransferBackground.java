@@ -1,17 +1,20 @@
 package com.spoon.backgroundFileUpload;
 
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.util.Log;
 
 import com.sromku.simple.storage.SimpleStorage;
 import com.sromku.simple.storage.Storage;
 import com.sromku.simple.storage.helpers.OrderType;
+
 import net.gotev.uploadservice.Logger;
 import net.gotev.uploadservice.MultipartUploadRequest;
 import net.gotev.uploadservice.ServerResponse;
 import net.gotev.uploadservice.UploadInfo;
 import net.gotev.uploadservice.UploadNotificationConfig;
-import net.gotev.uploadservice.UploadNotificationStatusConfig;
 import net.gotev.uploadservice.UploadService;
 import net.gotev.uploadservice.UploadServiceBroadcastReceiver;
 import net.gotev.uploadservice.okhttp.OkHttpStack;
@@ -74,7 +77,7 @@ public class FileTransferBackground extends CordovaPlugin {
   }
 
     @Override
-    public void onError(Context context, UploadInfo uploadInfo, final ServerResponse serverResponse, Exception exception) {
+    public void onError(final Context context, final UploadInfo uploadInfo, final ServerResponse serverResponse, final Exception exception) {
       LogMessage("App onError: " + exception);
       if(exception != null){
           exception.printStackTrace();
@@ -278,14 +281,50 @@ public class FileTransferBackground extends CordovaPlugin {
       LogMessage("upload with id "+payload.id + " is already being uploaded. ignoring re-upload request");
       return;
     }
+    try {
+      ArrayList<JSONObject> existingUploads = getUploadHistory();
+      for (JSONObject upload : existingUploads) {
+        String id = upload.getString("id");
+        if (id.equalsIgnoreCase(payload.id)) {
+          LogMessage("upload with id "+payload.id + " is already exists in upload queue. ignoring re-upload request");
+          return;
+        }
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+
     LogMessage("adding upload "+payload.id);
     this.createUploadInfoFile(payload.id, jsonPayload);
     if (NetworkMonitor.isConnected) {
+
       MultipartUploadRequest request = new MultipartUploadRequest(this.cordova.getActivity().getApplicationContext(), payload.id,payload.serverUrl)
-        .addFileToUpload(payload.filePath, payload.fileKey)
-        .setMaxRetries(0);
+              .addFileToUpload(payload.filePath, payload.fileKey)
+              .setMaxRetries(0);
 
+      if (payload.showNotification) {
+        UploadNotificationConfig config = new UploadNotificationConfig();
+        config.getCompleted().autoClear = true;
+        config.getCancelled().autoClear = true;
+        config.getError().autoClear = true;
+        config.setClearOnActionForAllStatuses(true);
+        Intent intent = new Intent(cordova.getContext(), cordova.getActivity().getClass());
+        PendingIntent pendingIntent = PendingIntent.getActivity(cordova.getContext(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+        config.setClickIntentForAllStatuses(pendingIntent);
+        if (payload.notificationTitle != null){
+          config.getProgress().title = payload.notificationTitle;
+          config.getCompleted().title = payload.notificationTitle;
+          config.getError().title = payload.notificationTitle;
+          config.getCancelled().title = payload.notificationTitle;
+        }
 
+        //--Rut - 15/07/2019 - messaggi in italiano personalizzati
+        config.getProgress().message = "Velocità di caricamento [[UPLOAD_RATE]] ([[PROGRESS]])";
+        config.getCompleted().message = "Caricamento completato in [[ELAPSED_TIME]]";
+        config.getError().message = "Caricamento non riuscito";
+        config.getCancelled().message = "Caricamento annullato";
+        request.setNotificationConfig(config);
+      }
       for (String key : payload.parameters.keySet()) {
         request.addParameter(key, payload.parameters.get(key));
       }
@@ -294,29 +333,6 @@ public class FileTransferBackground extends CordovaPlugin {
         request.addHeader(key, payload.headers.get(key));
       }
 
-      // Rut - 06/11/2018 - configurazione notifica di upload
-      // TODO sarebbe opportuno mettere i messaggi con dei valori di default come parametri di installazione del plugin
-      UploadNotificationConfig notificationConfig = new UploadNotificationConfig();
-      notificationConfig.getCancelled().autoClear = true;
-      UploadNotificationStatusConfig status = notificationConfig.getProgress();
-
-      //--Rut - 06/11/2018 - SU ANDROID OREO (>= 8.0) è DIVENUTO OBBLIGATORIO MOSTRARE UNA NOTIFICA DURANTE L'UTILIZZO
-      // DI UN SERVIZIO IN BACKGROUND - configuriamo quindi delle notifiche 'volatili' (che si nascondono da sole finito
-      // l'evento) per non impestare la barra delle notifiche utente se ad esempio carica tanti file, e impostiamo i messaggi
-      // in italiano
-      status.autoClear = true;
-      status.message = "Velocità di caricamento [[UPLOAD_RATE]] ([[PROGRESS]])";
-      status = notificationConfig.getCompleted();
-      status.autoClear = true;
-      status.message = "Caricamento completato in [[ELAPSED_TIME]]";
-      status = notificationConfig.getError();
-      status.autoClear = true;
-      status.message = "Caricamento non riuscito";
-      status = notificationConfig.getCancelled();
-      status.autoClear = true;
-      status.message = "Caricamento annullato";
-      notificationConfig.setTitleForAllStatuses("Caricamento file");
-      request.setNotificationConfig(notificationConfig);
       request.startUpload();
       String callbackId = callbackContext != null ? callbackContext.getCallbackId() : null;
       sendMessageWithData("upload", "jsonPayload", jsonPayload.toString(), "callbackId", callbackId);
@@ -500,9 +516,12 @@ public class FileTransferBackground extends CordovaPlugin {
 
       UploadService.HTTP_STACK = new OkHttpStack(customClient);
       UploadService.UPLOAD_POOL_SIZE = 1;
+      UploadService.NAMESPACE = cordova.getContext().getPackageName();
 
       _getStorage();
       LogMessage("created FileTransfer working directory ");
+
+      cordova.getActivity().getApplicationContext().registerReceiver(broadcastReceiver, new IntentFilter( UploadService.NAMESPACE+".uploadservice.broadcast.status" ) );
 
       if (options != null) {
         //initialised global configuration parameters here
