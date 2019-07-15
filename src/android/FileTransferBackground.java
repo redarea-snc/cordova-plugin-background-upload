@@ -219,33 +219,6 @@ public class FileTransferBackground extends CordovaPlugin {
         webView.getPluginManager().postMessage("FileTransferBackground", cordovaMessage);
     }
 
-    @Override
-    public void onResume(boolean multitasking) {
-        //--Rut Bastoni - 19/02/2019 - namespace HAS TO BE SET BEFORE broadcast receiver is registered, otherwise it won't work
-        UploadService.NAMESPACE = cordova.getActivity().getPackageName();
-        broadcastReceiver.register(cordova.getActivity());
-        try{
-            sendMessageWithData("onResume");
-        }catch (Exception innerE){
-            innerE.printStackTrace();
-        }
-    }
-
-    @Override
-    public void onPause(boolean multitasking) {
-        //See https://stackoverflow.com/questions/2682043/how-to-check-if-receiver-is-registered-in-android
-        try{
-            broadcastReceiver.unregister(cordova.getActivity());
-            try{
-                sendMessageWithData("onPause");
-            }catch (Exception innerE){
-                innerE.printStackTrace();
-            }
-        }catch (IllegalArgumentException e){
-            // Simply swallow this unesuful exception
-        }
-    }
-
   @Override
   public boolean execute(String action, JSONArray args, final CallbackContext callbackContext){
 
